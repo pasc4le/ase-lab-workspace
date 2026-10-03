@@ -1,0 +1,11 @@
+# A small, reusable riscv64 image: a native toolchain plus gdb.
+#
+# Used when CUSTOM_PATH=0 (compile + run the ELF natively) and by `make debug`
+# (gdb-multiarch).  Build it once with `make image`.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc binutils gdb-multiarch \
+ && rm -rf /var/lib/apt/lists/*

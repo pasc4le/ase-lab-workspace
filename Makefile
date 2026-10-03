@@ -1,149 +1,99 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Lab environment for the ASE RISC-V / gem5 simulator (PoliTo).
+# Compile every *.s to an ELF, then run it.
 #
-#   make            compile and run every program in every lab
-#   make build      compile only               (build/<lab>/<program>/main.elf)
-#   make run        compile, simulate, report  (build/<lab>/<program>/report.md)
-#   make check      compare the results with the <lab>/<program>.expected files
-#   make 01         do all of the above for lab 01, then write 01.zip
-#   make zips       write one submission archive per lab
-#   make labs       list the discovered labs and programs
-#   make clean      remove build/ and the archives
+#   make image                 build the reusable riscv64 image (once)
+#   make build                 build/{gem5,riscv}/<lab>/<program>/main.elf
+#   make run                   run every ELF
+#   make debug PROG=01/hello   open an ELF in gdb-multiarch
+#   make clean
 #
-# Everything the compiler and gem5 do happens inside the container image, so the
-# host only needs Docker (and uv for the report tooling).  Programs are
-# discovered, never listed: drop a .s file into <lab>/ and every target picks it
-# up.  The CPU characteristics come from cpu.toml (see that file).
-#
-# The image is the one built from this repository: `make image` builds and tags
-# it locally if it is not in the Docker cache yet.
+# CUSTOM_PATH=1 (default): the ASR gem5 container compiles and simulates.
+# CUSTOM_PATH=0:           a plain riscv64 image (make image); the native gcc
+#                          compiles and the ELF runs natively.
+# `make debug` always uses the riscv64 image.
 
 SHELL := /bin/sh
 .SHELLFLAGS := -eu -c
 
-# ---------------------------------------------------------------- settings ---
-IMAGE   ?= ghcr.io/pasc4le-labs/ase_riscv_gem5_sim:v1.0.0-a.1
-DOCKER  ?= docker
-UV      ?= uv
-# Wall-clock cap per program, enforced *inside* the container (gem5 has no
-# timeout of its own, so a program that never reaches its `End:` label would run
-# forever).  Keeping it there means the host needs no GNU `timeout`, which does
-# not exist on macOS.
-TIMEOUT ?= 180
-# Lab-local CPU file, merged over cpu.toml (see `make help`).
-CPU     ?= cpu.toml
-# Restrict every target to one lab, e.g. `make run LAB=02`.
-LAB     ?=
+CUSTOM_PATH ?= 1
+IMAGE       ?= ghcr.io/pasc4le-labs/ase_riscv_gem5_sim:v1.0.0-a.1
+RISCV_IMAGE ?= ase-riscv:24.04
+PLATFORM    ?= linux/riscv64
+DOCKER      ?= docker
+TIMEOUT     ?= 180
+PROG        ?=                   # restrict build/run/debug to one program
 
-BUILD   := build
-
-# ------------------------------------------------------------------- layout ---
-LABS    := $(sort $(notdir $(patsubst %/,%,$(wildcard [0-9]*/))))
-ifneq ($(LAB),)
-  LAB_DIRS := $(LAB)
+# Separate trees, so a gem5 (rv32) build is never run natively (rv64).
+ifeq ($(CUSTOM_PATH),1)
+  BUILD := build/gem5
 else
-  LAB_DIRS := $(LABS)
+  BUILD := build/riscv
 endif
-SOURCES := $(sort $(wildcard $(addsuffix /*.s,$(LAB_DIRS))))
-ELFS    := $(patsubst %.s,$(BUILD)/%/main.elf,$(SOURCES))
-RESULTS := $(patsubst %.s,$(BUILD)/%/ok,$(SOURCES))
-REPORTS := $(patsubst %.s,$(BUILD)/%/report.md,$(SOURCES))
 
-# The container is used as a plain program runner: no server, no network, and
-# the project tree lives in the container's own layer.  Only the artifacts and
-# the JSON dump come back out, chowned to the user running make.
-RUNNER  := $(DOCKER) run --rm --network none \
-             -v "$(CURDIR)":/work -w /work \
-             -e ASE_STUDIO_HOST_ROOT=/app \
-             -e ASE_OUT_OWNER="$(shell id -u):$(shell id -g)" \
-             --entrypoint python3 $(IMAGE)
-PY      := $(UV) run --quiet --project "$(CURDIR)" python tools/aselab.py
+SOURCES := $(sort $(wildcard */*.s))
+ifneq ($(PROG),)
+  SOURCES := $(PROG).s
+endif
+ELFS         := $(patsubst %.s,$(BUILD)/%/main.elf,$(SOURCES))
+RUNS         := $(patsubst %.s,$(BUILD)/%/ran,$(SOURCES))
+DEBUG_PROG   ?= $(if $(PROG),$(PROG),$(firstword $(patsubst %.s,%,$(SOURCES))))
 
-# Printed when a container call fails; the exit status is still the container's,
-# so `set -e` behaviour keeps working.  Plain POSIX: the recipe shell may be
-# zsh (where `status` is read-only) as well as bash or dash.
-CONTAINER_HINT = rc=$$?; \
-	  if [ $$rc -eq 124 ]; then \
-	    echo "error: the program ran longer than TIMEOUT=$(TIMEOUT)s." >&2; \
-	    echo "       A program that never reaches its 'End:' label runs forever." >&2; \
-	  elif [ $$rc -eq 125 ] || [ $$rc -eq 126 ] || [ $$rc -eq 127 ]; then \
-	    echo "error: could not run '$(DOCKER)' or could not find the image '$(IMAGE)'" >&2; \
-	    echo "       build it locally with: make image" >&2; \
-	  fi; \
-	  echo "       See build/$*/build.log (build) or simulate.log (simulation)." >&2
+MOUNT  := -v "$(CURDIR)":/work -w /work
+GEM5   := $(DOCKER) run --rm --network none $(MOUNT) \
+            -e ASE_STUDIO_HOST_ROOT=/app --entrypoint python3 $(IMAGE)
+RISCV  := $(DOCKER) run --rm --platform $(PLATFORM) $(MOUNT) $(RISCV_IMAGE)
+GDB    := $(DOCKER) run -it --rm --platform $(PLATFORM) $(MOUNT) $(RISCV_IMAGE)
 
-.DEFAULT_GOAL := all
-.PHONY: all build run report check update-expected clean distclean help labs zips \
-        image _lab _zip $(LABS) $(addsuffix .zip,$(LABS))
+ifeq ($(CUSTOM_PATH),1)
 
-# ------------------------------------------------------------------ targets ---
-all: build run
-
-build: $(ELFS)
-
-run report: $(REPORTS)
-
-# Compile one program.
 $(BUILD)/%/main.elf: %.s
 	@mkdir -p $(dir $@)
 	@echo "== build $* =="
-	@$(RUNNER) /work/tools/incontainer.py build --source "$*.s" --out "$(dir $@)" \
-	    --timeout "$(TIMEOUT)" || { $(CONTAINER_HINT); exit 1; }
+	$(GEM5) /work/tools/incontainer.py build --source "$*.s" --out "$(dir $@)" \
+	    --timeout "$(TIMEOUT)"
 
-# Compile and simulate one program, keeping every fact gem5 knows about it.
-$(BUILD)/%/ok: %.s $(CPU)
-	@mkdir -p $(dir $@)
+$(BUILD)/%/ran: $(BUILD)/%/main.elf
 	@echo "== run $* =="
-	@$(PY) config --toml "$(CPU)"$(if $(wildcard $(firstword $(subst /, ,$*))/cpu.toml), --lab-toml "$(firstword $(subst /, ,$*))/cpu.toml",) --out "$(dir $@)cpu.json"
-	@$(RUNNER) /work/tools/incontainer.py run --source "$*.s" --stem "$*" \
-	    --out "$(dir $@)" --config "$(dir $@)cpu.json" --timeout "$(TIMEOUT)" \
-	  || { $(CONTAINER_HINT); exit 1; }
+	$(GEM5) /work/tools/incontainer.py run --source "$*.s" \
+	    --elf "/work/$(dir $@)main.elf" --out "$(dir $@)" --timeout "$(TIMEOUT)"
 	@touch $@
 
-# Render the Markdown report from the JSON dump (no container needed).
-$(BUILD)/%/report.md: $(BUILD)/%/ok
-	@$(PY) report --build "$(BUILD)/$*" --source "$*.s" --out "$@" --image "$(IMAGE)"
+else
 
-check: $(REPORTS)
-	@$(PY) check --sources $(SOURCES) --build "$(BUILD)"
+$(BUILD)/%/main.elf: %.s
+	@mkdir -p $(dir $@)
+	@echo "== build $* =="
+	$(RISCV) gcc -static -no-pie -nostdlib -o "$(dir $@)main.elf" "$*.s"
 
-update-expected: $(REPORTS)
-	@$(PY) update-expected --sources $(SOURCES) --build "$(BUILD)"
+$(BUILD)/%/ran: $(BUILD)/%/main.elf
+	@echo "== run $* =="
+	$(RISCV) "./$(dir $@)main.elf"
+	@touch $@
 
-# One lab: compile, run and archive it.
-$(LABS):
-	@$(MAKE) --no-print-directory _lab LAB="$@"
+endif
 
-_lab: build run
-	@$(MAKE) --no-print-directory _zip LAB="$(LAB)"
-	@echo "run 'make check LAB=$(LAB)' to verify the results against <lab>/*.expected"
+all: build
+build: $(ELFS)
+run: $(RUNS)
+debug: $(BUILD)/$(DEBUG_PROG)/main.elf
+	@echo "== gdb $< =="
+	$(GDB) gdb-multiarch "$(BUILD)/$(DEBUG_PROG)/main.elf"
 
-zips: $(addsuffix .zip,$(LABS))
-
-$(addsuffix .zip,$(LABS)):
-	@$(MAKE) --no-print-directory _zip LAB="$(patsubst %.zip,%,$@)"
-
-_zip: run
-	@$(PY) zip --lab "$(LAB)" --out "$(LAB).zip" --build "$(BUILD)" --cpu "$(CPU)"
-
-labs:
-	@$(PY) labs
-
+# --provenance/--sbom off: a bare single-platform image, so `docker run
+# --platform` does not go looking for an attestation manifest.
 image:
-	@echo "building $(IMAGE) from $(CURDIR)/.. (the repository root)"
-	cd .. && $(DOCKER) build -t "$(IMAGE)" .
+	$(DOCKER) build --platform $(PLATFORM) --provenance=false --sbom=false \
+	    -t "$(RISCV_IMAGE)" -f Dockerfile.riscv .
 
 clean:
-	@rm -rf "$(BUILD)" *.zip
-	@echo "removed $(BUILD)/ and the archives"
+	@rm -rf build
+	@echo "removed build/"
 
-distclean: clean
-	@rm -rf .venv
-	@echo "removed .venv/"
+.PHONY: all build run debug image clean help
 
 help:
-	@sed -n '3,20p' Makefile | sed 's/^# \{0,1\}//' || true
+	@sed -n '3,14p' Makefile | sed 's/^# \{0,1\}//'
 	@echo
-	@echo "Variables: IMAGE=$(IMAGE)  LAB=$(LAB)  CPU=$(CPU)  TIMEOUT=$(TIMEOUT)"
-	@echo "Labs: $(if $(LABS),$(LABS),(none yet)")
+	@echo "CUSTOM_PATH=$(CUSTOM_PATH)  IMAGE=$(IMAGE)  RISCV_IMAGE=$(RISCV_IMAGE)"
+	@echo "Programs: $(if $(SOURCES),$(SOURCES),(none))"

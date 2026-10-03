@@ -11,10 +11,9 @@ Two modes:
     Compile only. Produces ``main.elf`` / ``main.dump``.
 
 ``run``
-    Compile, simulate with gem5 and dump everything the simulator knows about
-    the program: the pipeline trace (per instruction, per cycle), the register
-    file over time and the final one, the data memory, the ELF memory map and
-    the raw build/simulation logs.
+    Simulate with gem5 and keep the raw build/simulation logs.  With ``--elf``
+    a prebuilt ELF is simulated instead of compiling one; ``--report`` also
+    dumps the pipeline trace and the architectural summary.
 
 Everything is written under ``--out``, which lives on the mounted tree, then
 chowned to ``ASE_OUT_OWNER`` so the host user owns their own artifacts even
@@ -272,15 +271,22 @@ def run(args) -> int:
     write_artifacts(backend, folder, source_text, config)
 
     print(f"== {args.stem} (project {name}) ==")
-    built = backend.build(name)
-    (out / "build.log").write_text(built.get("advancedOutput", ""))
-    (out / "build-display.log").write_text(built.get("output", ""))
-    if not built.get("ok"):
-        print(built.get("output", ""))
-        chown_tree(out)
-        print("build failed", file=sys.stderr)
-        return 1
-    print("build ok")
+    if args.elf:
+        elf = Path(args.elf)
+        if not elf.is_file():
+            die(f"prebuilt ELF not found: {elf}")
+        shutil.copy2(elf, folder / f"{backend_artifact_stem(folder)}.elf")
+        print(f"using prebuilt {elf.name}")
+    else:
+        built = backend.build(name)
+        (out / "build.log").write_text(built.get("advancedOutput", ""))
+        (out / "build-display.log").write_text(built.get("output", ""))
+        if not built.get("ok"):
+            print(built.get("output", ""))
+            chown_tree(out)
+            print("build failed", file=sys.stderr)
+            return 1
+        print("build ok")
 
     if args.mode == "build":
         copy_artifacts(folder, out)
@@ -300,34 +306,35 @@ def run(args) -> int:
         # 124 travels up to the Makefile, which explains what it means.
         return 124 if "Timed out after" in simulate_log else 1
 
-    data = backend.pipeline(name)
-    registers = fold_registers(data.get("registerDeltas", {}))
-    memory = final_memory(data.get("initialMemory", {}),
-                          data.get("memoryDeltas", {}),
-                          data.get("dataSymbols", []))
-    output = program_output(simulate_display)
-
-    (out / "pipeline.json").write_text(json.dumps(data, indent=1, sort_keys=True))
-    (out / "summary.json").write_text(json.dumps(
-        summarize(data, registers, memory, output), indent=2, sort_keys=True) + "\n")
-    (out / "meta.json").write_text(json.dumps({
-        "stem": args.stem,
-        "project": name,
-        "source": source_path.name,
-        "sourceSha256": __import__("hashlib").sha256(
-            source_text.encode("utf-8")).hexdigest(),
-        "config": data.get("configuration", config),
-        "format": data.get("format", ""),
-        "cycles": data.get("cycles", 0),
-        "instructions": len(pipeline_rows(data)),
-        "buildOk": True,
-        "simulateOk": True,
-    }, indent=2, sort_keys=True) + "\n")
+    if args.report:
+        data = backend.pipeline(name)
+        registers = fold_registers(data.get("registerDeltas", {}))
+        memory = final_memory(data.get("initialMemory", {}),
+                              data.get("memoryDeltas", {}),
+                              data.get("dataSymbols", []))
+        output = program_output(simulate_display)
+        (out / "pipeline.json").write_text(json.dumps(data, indent=1, sort_keys=True))
+        (out / "summary.json").write_text(json.dumps(
+            summarize(data, registers, memory, output), indent=2, sort_keys=True) + "\n")
+        (out / "meta.json").write_text(json.dumps({
+            "stem": args.stem,
+            "project": name,
+            "source": source_path.name,
+            "sourceSha256": __import__("hashlib").sha256(
+                source_text.encode("utf-8")).hexdigest(),
+            "config": data.get("configuration", config),
+            "format": data.get("format", ""),
+            "cycles": data.get("cycles", 0),
+            "instructions": len(pipeline_rows(data)),
+            "buildOk": True,
+            "simulateOk": True,
+        }, indent=2, sort_keys=True) + "\n")
+        rows = pipeline_rows(data)
+        stalls = sum(stage == "S" for row in rows
+                     for stage in row.get("cycles", {}).values())
+        print(f"cycles={data.get('cycles', 0)} instructions={len(rows)} stalls={stalls}")
     copy_artifacts(folder, out)
     chown_tree(out)
-    rows = pipeline_rows(data)
-    stalls = sum(stage == "S" for row in rows for stage in row.get("cycles", {}).values())
-    print(f"cycles={data.get('cycles', 0)} instructions={len(rows)} stalls={stalls}")
     return 0
 
 
@@ -339,6 +346,10 @@ def main() -> int:
     parser.add_argument("--stem", default="", help="lab/program stem, e.g. 01/hello")
     parser.add_argument("--name", default="", help="override the server-side project name")
     parser.add_argument("--config", default="", help="CPU configuration JSON")
+    parser.add_argument("--elf", default="",
+                        help="prebuilt ELF to simulate instead of compiling")
+    parser.add_argument("--report", action="store_true",
+                        help="also dump the pipeline/summary/meta JSON dumps")
     parser.add_argument("--timeout", type=int, default=180,
                         help="seconds allowed per compiler/simulator process")
     args = parser.parse_args()

@@ -1,106 +1,69 @@
 # `env` — the lab environment
 
-A drop-in workflow for the ASE RISC-V + gem5 simulator: **compiling and simulating
-happen in the container image**, the reports and the submission archives are
-produced on the host.
+Compile every `<lab>/<program>.s` to an ELF, then run it. Everything happens in
+Docker; the host only needs Docker.
 
 ```bash
-make                # compile and simulate every program in every lab
-make check          # verify the results against the golden files
-make 01             # do everything for lab 01, then write 01.zip
-make help           # the full target list
+make image              # build the reusable riscv64 image (once)
+make build              # build/gem5/<lab>/<program>/main.elf (or build/riscv/…)
+make run                # run every ELF
+make debug PROG=01/hello   # open an ELF in gdb-multiarch
+make help               # the target list
 ```
 
-Everything is discovered, nothing is listed: to add a lab, create `03/`; to add a
-program, drop `03/myprogram.s` in it. All targets pick it up (`make labs` shows
-what was found).
+Programs are discovered, never listed: to add a lab, create `03/`; to add a
+program, drop `03/myprogram.s` in it. `make build PROG=03/myprogram` restricts
+any target to a single program.
 
-## What a run produces
+## The two paths
 
-For `<lab>/<program>.s`, in `build/<lab>/<program>/`:
+`CUSTOM_PATH` selects how a program is built and run:
 
-| file | what it is |
-| --- | --- |
-| `main.elf`, `main.dump` | the compiled program and its disassembly |
-| `report.md` | **the deliverable**: cycle-by-cycle pipeline table, pipeline per instruction, every register write, the final register file, the data memory (initial values, what the program stored and when), the ELF memory map, the program's output, the source listing and both logs |
-| `pipeline.json` | every fact gem5 produced, exactly as the web UI receives it |
-| `summary.json` | the architectural result (registers, memory, output) — what `make check` compares |
-| `meta.json` | the CPU characteristics and the source hash this run used |
-| `build.log`, `simulate.log` | the raw `make` and gem5 output |
-| `cpu.json` | the merged CPU configuration handed to the container |
+| `CUSTOM_PATH` | build | run |
+| --- | --- | --- |
+| `1` (default) | the ASR gem5 image, via `tools/incontainer.py` | gem5 simulation |
+| `0` | the plain riscv64 image (`make image`) | the ELF runs natively |
 
-`report.md` is the one to read: it is generated from `pipeline.json` with the
-same reading of the trace the GUI uses, so a report and the browser show the same
-pipeline.
+The two paths use separate trees (`build/gem5/`, `build/riscv/`), so a gem5 rv32
+build is never mistaken for a native rv64 one. `make clean` removes both.
 
-## CPU characteristics
-
-`cpu.toml` holds the same knobs as the GUI's CPU configuration dialog
-(functional-unit latencies, which units are pipelined, forwarding, the
-instruction set). A lab can override them with `<lab>/cpu.toml`, or a single run
-can use another file:
-
-```bash
-make run LAB=02 CPU=02/cpu.toml
-```
-
-Every report states the configuration that was in effect. Note which knobs this
-image **locks**: `ENABLE_MEMORY_CONFIGURATION` and `ENABLE_MULTI_ISSUE_CPU` are
-`false` in `ase_studio/backend.py`, so the out-of-order model and the whole
-cache/memory group are reset by the backend and listed as locked in the report.
-The tooling warns if a lab sets one of them.
-
-## Checking results
-
-`make check` compares each program's **architectural** result — the final
-registers, the data memory and the program's printed output — against
-`<lab>/<program>.expected`. Those facts do not depend on the CPU model, so a
-check does not break when you change `cpu.toml`; only the timing in the report
-changes. That is deliberate: the golden files assert what the program computes,
-the report explains how long it took.
-
-```bash
-make update-expected     # after an intentional change to a program
-make check LAB=02        # a single lab
-```
-
-A missing golden file is reported as `skip` and makes `make check` exit
-non-zero, so a fresh lab cannot silently pass.
-
-## Submission archives
-
-`make 01` writes `01.zip` with the layout the course's own submission pipeline
-uses:
-
-```
-01/
-├── README.md                  # generated: what the archive contains
-├── cpu.toml                   # the CPU characteristics the results came from
-├── 01-hello/
-│   ├── main.s  Makefile  main.dump  report.md
-└── 02-loopsum/
-    └── …
-```
+`make debug` always uses the riscv64 image, whatever `CUSTOM_PATH` is: it opens
+the ELF in `gdb-multiarch`, which reads both the rv32 and the rv64 builds.
 
 ## Requirements
 
-- **Docker** with the image built (`make image` builds and tags it from this
-  repository; the default tag is `v1.0.0-a.1`).
-- **uv** for the report tooling: `uv run` creates `.venv` from `pyproject.toml`
-  on first use.
+- **Docker**.
+- The gem5 image, already pulled (`ghcr.io/pasc4le-labs/ase_riscv_gem5_sim`,
+  tag `v1.0.0-a.1` by default) for `CUSTOM_PATH=1`.
+- The riscv64 image, built once with `make image` (defined in `Dockerfile.riscv`:
+  `ubuntu:24.04` for `linux/riscv64` with `gcc`, `binutils` and `gdb-multiarch`),
+  for `CUSTOM_PATH=0` and `make debug`.
 
-Nothing else: no GNU `timeout` (the simulation cap lives inside the container,
-`TIMEOUT=180` by default), no RISC-V toolchain, no gem5. The image is used as a
-plain program runner — no server, no published port, `--network none`.
+Nothing else: no host RISC-V toolchain, no gem5, no `timeout`.
 
-## Verification
+## What a build produces
 
-`tests/` holds the checks for this environment. They need neither Docker nor
-gem5: the Docker shim runs the container's own script on the host against a
-locally assembled image root (see `tests/README.md`).
+For `<lab>/<program>.s`, in `build/{gem5,riscv}/<lab>/<program>/`:
 
-```bash
-uv run pytest tests -q          # host tooling: report, check, zip, config
-bash tests/make-fake-image.sh   # assemble the fake image root
-make build DOCKER=tests/shim/docker   # really compiles, with the host toolchain
-```
+| file | what it is |
+| --- | --- |
+| `main.elf` | the compiled program |
+| `main.dump` | the disassembly (gem5 path only) |
+| `build.log`, `simulate.log` | the raw compiler / gem5 output (gem5 path only) |
+
+## Variables
+
+| variable | default | meaning |
+| --- | --- | --- |
+| `CUSTOM_PATH` | `1` | `1`: gem5 image; `0`: native riscv64 |
+| `IMAGE` | `ghcr.io/pasc4le-labs/…:v1.0.0-a.1` | the gem5 image |
+| `RISCV_IMAGE` | `ase-riscv:24.04` | the image `make image` builds |
+| `PLATFORM` | `linux/riscv64` | platform for the riscv64 image |
+| `TIMEOUT` | `180` | wall-clock cap per gem5 run, in seconds |
+| `PROG` | (all) | restrict to one program, e.g. `01/hello` |
+
+## Note
+
+`tools/aselab.py`, `cpu.toml` and the report/check/zip tooling are no longer
+used by the Makefile; the gem5 path now only compiles and simulates. They are
+left in the tree in case the reports are wanted back.
