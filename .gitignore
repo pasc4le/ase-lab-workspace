@@ -1,0 +1,17 @@
+# uv environment created by `uv run`
+.venv/
+
+# Everything the container and the report tooling produce
+build/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# tools/ holds this environment's own tooling. The repository's .gitignore
+# excludes any tools/ directory (there it is the desktop toolchain and gem5), so
+# the exclusion is undone here.
+!tools/
+!tools/**

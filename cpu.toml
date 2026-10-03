@@ -1,0 +1,58 @@
+# CPU characteristics for the labs — the same knobs the web UI's CPU
+# configuration dialog exposes.  Every program is compiled and simulated with
+# exactly this configuration; the values that were in effect are printed in each
+# report, so a report is self-explanatory.
+#
+# A lab can override any of these by adding its own <lab>/cpu.toml, and a single
+# run can use another file entirely:  make run CPU=02/cpu.toml
+#
+# Values are validated by the container with the application's own
+# validate_config() before anything runs, so the lab and the GUI can never
+# disagree about what a setting means.
+
+# ---------------------------------------------------------------- functional units
+# Cycles spent in a functional unit after issue. 1..100.
+intAlu = 1          # integer ALU and memory address calculation
+intMul = 1          # integer multiplication
+intDiv = 1          # integer division
+floatAlu = 2        # floating-point ALU
+floatMul = 7        # floating-point multiplication
+floatDiv = 8        # floating-point division
+
+# A pipelined unit accepts a new operation every cycle; a non-pipelined one only
+# after its own latency, so it must finish before the next operation enters it.
+intAluPipelined = true
+intMulPipelined = true
+intDivPipelined = true
+floatAluPipelined = true
+floatMulPipelined = true
+floatDivPipelined = false   # division is usually the non-pipelined one
+
+# Result forwarding from the execution stage to a dependent instruction.
+# false makes dependents wait for write-back.
+forwarding = true
+
+# ---------------------------------------------------------------- instruction set
+# The compressed extension adds the C instructions; the choice changes the
+# -march the programs are compiled with.
+compressedInstructions = false
+# "single" compiles rv32imaf…, "double" adds the D extension (rv32imafd…).
+floatingPointPrecision = "single"
+
+# ------------------------------------------------------------------- locked here
+# The image has ENABLE_MEMORY_CONFIGURATION and ENABLE_MULTI_ISSUE_CPU set to
+# false (ase_studio/backend.py), so these groups are reset to their defaults by
+# the backend no matter what this file says, and the report lists them as
+# locked:
+#
+#   cpu                    in-order only ("out-of-order" is ignored)
+#   memoryMode = "direct", cacheStalls = false,
+#   instructionMemoryLatency = 1, dataReadLatency = 1, dataWriteLatency = 1
+#   iCacheSize = "32kB", dCacheSize = "32kB", cacheLine = 64,
+#   cacheLatency = 2, memoryLatency = 30
+#   fetchWidth … commitWidth = 2, robEntries = 64, iqEntries = 128,
+#   lqEntries = 32, sqEntries = 32, branchPredictor = "local",
+#   speculativeExecution, outOfOrderExecution, o3VisibleStages, o3EvaluationLabel
+#
+# To change them, flip those two flags in ase_studio/backend.py and rebuild the
+# image.

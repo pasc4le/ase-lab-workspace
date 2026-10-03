@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
+"""A `docker` stand-in that runs the container's command on the host.
+
+Used to exercise the lab Makefile where no Docker daemon exists (CI, or a
+developer's machine without Docker): it understands exactly the `docker run`
+shape the Makefile emits, rewrites the `/work` paths to the host mount, points
+``ASE_STUDIO_HOST_ROOT`` at a locally assembled image root (see
+``make-fake-image.sh``) and executes the container's own script with the host
+interpreter.
+
+What it verifies is real: the RISC-V toolchain, the project layout the backend
+expects, the container script and the artifact plumbing.  What it cannot verify
+is gem5 -- the fake image carries a stub ``gem5.opt`` that fails with a message
+instead of simulating, so `make build` is the target to run this way.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+import sys
+from pathlib import Path
+
+
+def parse(argv: list[str]):
+    if not argv or argv[0] != "run":
+        raise SystemExit("docker-shim: only `docker run` is supported")
+    rest, mounts, env, workdir, entrypoint, image = argv[1:], {}, {}, None, None, None
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if token in ("--rm", "--init", "--network"):
+            index += 2 if token == "--network" else 1
+        elif token == "-v":
+            host, _, container = rest[index + 1].partition(":")
+            mounts[container] = host
+            index += 2
+        elif token == "-w":
+            workdir = rest[index + 1]
+            index += 2
+        elif token == "-e":
+            key, _, value = rest[index + 1].partition("=")
+            env[key] = value
+            index += 2
+        elif token == "-u":
+            index += 2
+        elif token == "--entrypoint":
+            entrypoint = rest[index + 1]
+            index += 2
+        elif token.startswith("-"):
+            raise SystemExit(f"docker-shim: unsupported option {token}")
+        else:
+            image, rest = token, rest[index + 1:]
+            break
+    if image is None:
+        raise SystemExit("docker-shim: no image given")
+    return mounts, env, workdir, entrypoint, image, rest
+
+
+def translate(path: str, mounts: dict) -> str:
+    for container, host in mounts.items():
+        if path == container or path.startswith(container.rstrip("/") + "/"):
+            return host.rstrip("/") + path[len(container.rstrip("/")):]
+    return path
+
+
+def main() -> int:
+    mounts, env, workdir, entrypoint, image, rest = parse(sys.argv[1:])
+    if not rest:
+        raise SystemExit("docker-shim: no command given")
+    image_root = Path(os.environ.get(
+        "ASE_FAKE_IMAGE", Path(__file__).resolve().parents[2] / "build" / "fake-image"))
+    if not (image_root / "ase_studio" / "backend.py").exists():
+        raise SystemExit(f"docker-shim: {image_root} is not an image root; "
+                         "run tests/make-fake-image.sh first")
+
+    script = translate(rest[0], mounts)
+    arguments = [translate(item, mounts) for item in rest[1:]]
+    interpreter = sys.executable if entrypoint in ("python3", "python") else entrypoint
+
+    environment = dict(os.environ)
+    environment.update(env)
+    environment["ASE_STUDIO_HOST_ROOT"] = str(image_root)
+    environment.pop("ASE_OUT_OWNER", None)   # no root here, nothing to chown
+    cwd = translate(workdir, mounts) if workdir else os.getcwd()
+    command = [interpreter or "python3", script, *arguments]
+    print(f"docker-shim: {shlex.join(command)} (image {image})", file=sys.stderr)
+    return os.spawnve(os.P_WAIT, command[0], command, environment)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
