@@ -94,9 +94,3 @@ entry point, so set breakpoints and use **`continue`** -- `run` will not work:
 ```
 
 Stepping (`stepi`, `nexti`), registers, memory and breakpoints all work.
-
-## Note
-
-`tools/aselab.py`, `cpu.toml` and the report/check/zip tooling are no longer
-used by the Makefile; the gem5 path now only compiles and simulates. They are
-left in the tree in case the reports are wanted back.
