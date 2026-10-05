@@ -32,10 +32,11 @@ loop_v2:
 
 insert_v3:
   beq s5, x0, after_insert_v3
-  blt s5, t1, 3
+  blt s5, t1, insert_v3_states
   li s5, 0b011
   j after_insert_v3
 
+insert_v3_states:
   bgt a0, s6, insert_v3_gt
   blt a0, s6, insert_v3_lt
   li s5, 0b000
