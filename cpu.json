@@ -1,0 +1,22 @@
+{
+  "cpu": "in-order",
+
+  "intAlu": 1,
+  "intMul": 1,
+  "intDiv": 1,
+  "floatAlu": 2,
+  "floatMul": 7,
+  "floatDiv": 8,
+
+  "intAluPipelined": true,
+  "intMulPipelined": true,
+  "intDivPipelined": true,
+  "floatAluPipelined": true,
+  "floatMulPipelined": true,
+  "floatDivPipelined": false,
+
+  "forwarding": true,
+
+  "compressedInstructions": false,
+  "floatingPointPrecision": "single"
+}

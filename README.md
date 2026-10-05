@@ -7,6 +7,8 @@ Docker; the host only needs Docker.
 make image              # build the reusable riscv64 image (once)
 make build              # build/gem5/<lab>/<program>/main.elf (or build/riscv/…)
 make run                # run every ELF
+make report             # render build/…/<lab>/<program>/report.md
+make zip LAB=01         # archive one lab's submission
 make debug PROG=01/hello   # open an ELF in gdb-multiarch (or pwndbg)
 make help               # the target list
 ```
@@ -50,7 +52,52 @@ For `<lab>/<program>.s`, in `build/{gem5,riscv}/<lab>/<program>/`:
 | --- | --- |
 | `main.elf` | the compiled program |
 | `main.dump` | the disassembly (gem5 path only) |
+| `pipeline.json`, `summary.json`, `meta.json` | the trace and the architectural facts, for `make report` (gem5 path only) |
+| `report.md` | the Markdown lab report, after `make report` |
 | `build.log`, `simulate.log` | the raw compiler / gem5 output (gem5 path only) |
+
+## CPU configuration
+
+`cpu.json` holds the CPU characteristics every program is compiled and
+simulated with -- the same knobs the web UI's CPU dialog exposes:
+
+| key | meaning |
+| --- | --- |
+| `intAlu`, `intMul`, `intDiv`, `floatAlu`, `floatMul`, `floatDiv` | cycles an operation spends in its functional unit (1..100) |
+| `intAluPipelined` … `floatDivPipelined` | a pipelined unit accepts a new operation every cycle |
+| `forwarding` | result forwarding from execute to a dependent instruction |
+| `compressedInstructions` | the RVC extension; it also changes the `-march` programs are compiled with |
+| `floatingPointPrecision` | `single` (`rv32imaf…`) or `double` (`rv32imafd…`) |
+
+Everything else is filled in by the image, which also pins the memory/cache and
+out-of-order groups (the pinned image sets `ENABLE_MEMORY_CONFIGURATION` and
+`ENABLE_MULTI_ISSUE_CPU` to false), so `cpu` is always `in-order`. The container
+validates the file with the application's own `validate_config()`, and the
+report lists the effective configuration it settled on.
+
+A lab can use its own file: `make run CPU=02/cpu.json`.
+
+## Reports and submissions
+
+```bash
+make run                # compiles, simulates and keeps the JSON dumps
+make report             # renders report.md next to them
+make zip LAB=01         # 01.zip: sources, disassemblies, reports, cpu.json
+```
+
+`make report` turns the JSON a run leaves behind into
+`build/{gem5,riscv}/<lab>/<program>/report.md`: summary, effective CPU
+characteristics, the per-cycle pipeline table, register writes, final registers,
+data memory, program output, the annotated source and the logs. Rendering is
+done by `tools/artifacts.py`, which reads only those dumps -- no compiler, no
+gem5 -- so it can be re-run without simulating again.
+
+`make zip LAB=01` archives a lab for submission: one `NN-<program>/` folder per
+program holding `main.s`, the generated `Makefile`, `main.dump` and `report.md`,
+plus `README.md` and the effective `cpu.json`. `LAB` defaults to the first lab.
+
+Both targets need the gem5 path (`CUSTOM_PATCH=1`); the native path keeps no
+trace to render.
 
 ## Variables
 
@@ -62,6 +109,8 @@ For `<lab>/<program>.s`, in `build/{gem5,riscv}/<lab>/<program>/`:
 | `PLATFORM` | `linux/riscv64` | platform for the riscv64 image |
 | `TIMEOUT` | `180` | wall-clock cap per gem5 run, in seconds |
 | `PROG` | (all) | restrict to one program, e.g. `01/hello` |
+| `CPU` | `cpu.json` | the CPU characteristics passed to the simulator |
+| `LAB` | first lab | lab for `make zip`, e.g. `make zip LAB=02` |
 | `DEBUGGER` | `gdb` | `make debug` front end: `gdb` (gdb-multiarch) or `pwndbg` |
 
 Any of these can be put in a git-ignored `.env` file instead of passed on the
