@@ -31,6 +31,7 @@ loop_v2:
   j no_insert_v3
 
 insert_v3:
+  beq s5, x0, after_insert_v3
   blt s5, t1, 3
   li s5, 0b011
   j after_insert_v3
