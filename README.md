@@ -7,7 +7,7 @@ Docker; the host only needs Docker.
 make image              # build the reusable riscv64 image (once)
 make build              # build/gem5/<lab>/<program>/main.elf (or build/riscv/…)
 make run                # run every ELF
-make debug PROG=01/hello   # open an ELF in gdb-multiarch
+make debug PROG=01/hello   # open an ELF in gdb-multiarch (or pwndbg)
 make help               # the target list
 ```
 
@@ -36,8 +36,9 @@ reads both the rv32 and the rv64 builds. See [Debugging](#debugging).
 - The gem5 image, already pulled (`ghcr.io/pasc4le-labs/ase_riscv_gem5_sim`,
   tag `v1.0.0-a.1` by default) for `CUSTOM_PATCH=1`.
 - The riscv64 image, built once with `make image` (defined in `Dockerfile.riscv`:
-  `ubuntu:24.04` for `linux/riscv64` with `gcc`, `binutils`, `gdb-multiarch` and
-  `qemu-user`), for `CUSTOM_PATCH=0` and `make debug`.
+  `ubuntu:24.04` for `linux/riscv64` with `gcc`, `binutils`, `gdb-multiarch`,
+  `qemu-user` and pwndbg), for `CUSTOM_PATCH=0` and `make debug`.  Building it
+  needs network access (pwndbg is fetched from `install.pwndbg.re`).
 
 Nothing else: no host RISC-V toolchain, no gem5, no `timeout`.
 
@@ -61,6 +62,7 @@ For `<lab>/<program>.s`, in `build/{gem5,riscv}/<lab>/<program>/`:
 | `PLATFORM` | `linux/riscv64` | platform for the riscv64 image |
 | `TIMEOUT` | `180` | wall-clock cap per gem5 run, in seconds |
 | `PROG` | (all) | restrict to one program, e.g. `01/hello` |
+| `DEBUGGER` | `gdb` | `make debug` front end: `gdb` (gdb-multiarch) or `pwndbg` |
 
 Any of these can be put in a git-ignored `.env` file instead of passed on the
 command line; copy `.env.example` to start. Command-line values still win.
@@ -68,15 +70,23 @@ command line; copy `.env.example` to start. Command-line values still win.
 ## Debugging
 
 ```bash
-make debug PROG=01/hello
+make debug PROG=01/hello                        # gdb-multiarch
+DEBUGGER=pwndbg make debug PROG=01/hello        # pwndbg
 ```
 
-opens `gdb-multiarch` on `build/{gem5,riscv}/01/hello/main.elf`. Because the
-riscv64 container runs under QEMU user-mode emulation, which does not implement
-`ptrace`, gdb cannot launch the inferior itself. Instead `tools/gdbserver.sh`
-runs the ELF under `qemu-riscv32`/`qemu-riscv64` and attaches gdb to QEMU's
-gdbstub (`target remote`). The program is already paused at its entry point, so
-set breakpoints and use **`continue`** -- `run` will not work:
+`DEBUGGER` picks the front end, and also works from `.env`. `gdb` (the default)
+is `gdb-multiarch`; `pwndbg` is the enhanced GDB (`pwndbg` portable release,
+which bundles its own GDB 17.2 built `--enable-targets=all`, so rv32 and rv64
+both work) baked into the riscv64 image. Both share the QEMU/gdbstub flow below,
+so nothing changes but the UI: pwndbg adds its registers/disassembly/stack
+panels, `vmmap` and the rest.
+
+Either way, this opens a debugger on `build/{gem5,riscv}/01/hello/main.elf`.
+Because the riscv64 container runs under QEMU user-mode emulation, which does not
+implement `ptrace`, gdb cannot launch the inferior itself. Instead
+`tools/gdbserver.sh` runs the ELF under `qemu-riscv32`/`qemu-riscv64` and attaches
+gdb to QEMU's gdbstub (`target remote`). The program is already paused at its
+entry point, so set breakpoints and use **`continue`** -- `run` will not work:
 
 ```
 (gdb) break Main

@@ -1,7 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Open an ELF in gdb-multiarch, with the program running under QEMU.
+# Open an ELF in gdb-multiarch (or pwndbg), with the program running under QEMU.
+#
+# DEBUGGER selects the front end: `gdb` (the default, gdb-multiarch) or
+# `pwndbg`, the enhanced GDB bundled with the image.
 #
 # QEMU user-mode does not implement ptrace, so `gdb` cannot launch or step the
 # inferior itself ("ptrace: Function not implemented").  Instead QEMU hosts the
@@ -9,11 +12,20 @@
 # `target remote`.  Breakpoints, stepping and registers all work this way.
 #
 #   tools/gdbserver.sh build/riscv/01/hello/main.elf
+#   DEBUGGER=pwndbg tools/gdbserver.sh build/riscv/01/hello/main.elf
 #
 set -eu
 
 elf="${1:?usage: gdbserver.sh <elf>}"
 port="${GDB_PORT:-1234}"
+
+# `gdb` -> gdb-multiarch, `pwndbg` -> the image's pwndbg.  Anything else is used
+# verbatim, so `DEBUGGER=/some/gdb` works too.
+case "${DEBUGGER:-gdb}" in
+  gdb|gdb-multiarch) dbg=gdb-multiarch ;;
+  pwndbg)            dbg=pwndbg ;;
+  *)                 dbg="$DEBUGGER" ;;
+esac
 
 case "$(readelf -h "$elf" | awk '/Class:/ { print $2 }')" in
   ELF32) qemu=qemu-riscv32 ;;
@@ -28,4 +40,4 @@ trap 'kill "$qemu_pid" 2>/dev/null || true' EXIT INT TERM
 printf '\nAttached to QEMU (no ptrace).  Set breakpoints, then use `continue`,\n'
 printf 'not `run` -- the inferior is already started and paused at the entry point.\n\n'
 
-gdb-multiarch -ex "set confirm off" -ex "target remote :$port" "$elf"
+"$dbg" -ex "set confirm off" -ex "target remote :$port" "$elf"

@@ -1,12 +1,24 @@
-# A small, reusable riscv64 image: a native toolchain, gdb and qemu-user.
+# A small, reusable riscv64 image: a native toolchain, gdb, qemu-user and
+# pwndbg.
 #
 # Used when CUSTOM_PATCH=0 (compile + run the ELF natively) and by `make debug`
-# (gdb-multiarch attached to QEMU's gdbstub).  Build it once with `make image`.
+# (gdb-multiarch or pwndbg attached to QEMU's gdbstub).  Build it once with
+# `make image`.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# The pwndbg portable release for riscv64 bundles its own GDB 17.2 built with
+# --enable-targets=all, so it handles both rv32 and rv64 and needs no system
+# python.  Pin the version: the installer otherwise tracks their latest release.
+# ncurses-term is only there for pwndbg's TUI (the base image has no terminfo).
+ARG PWNDBG_VERSION=2026.09.15
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       gcc binutils gdb-multiarch qemu-user \
- && rm -rf /var/lib/apt/lists/*
+      curl ca-certificates xz-utils ncurses-term \
+ && curl -fsSL https://install.pwndbg.re \
+      | sh -s -- -t pwndbg-gdb -u -v "$PWNDBG_VERSION" \
+ && ln -sf /root/.local/bin/pwndbg /usr/local/bin/pwndbg \
+ && rm -rf /var/lib/apt/lists/* /root/.cache

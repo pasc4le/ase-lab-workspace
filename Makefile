@@ -5,7 +5,7 @@
 #   make image                 build the reusable riscv64 image (once)
 #   make build                 build/{gem5,riscv}/<lab>/<program>/main.elf
 #   make run                   run every ELF
-#   make debug PROG=01/hello   open an ELF in gdb-multiarch
+#   make debug PROG=01/hello   open an ELF in gdb-multiarch (DEBUGGER=pwndbg)
 #   make clean
 #
 # CUSTOM_PATCH=1 (default): the ASR gem5 container compiles and simulates.
@@ -27,6 +27,10 @@ DOCKER      ?= docker
 TIMEOUT     ?= 180
 PROG        ?=                   # restrict build/run/debug to one program
 
+# `make debug` front end: gdb-multiarch, or pwndbg.  (No trailing comment here:
+# make would keep the padding as part of the value.)
+DEBUGGER    ?= gdb
+
 # Separate trees, so a gem5 (rv32) build is never run natively (rv64).
 ifeq ($(CUSTOM_PATCH),1)
   BUILD := build/gem5
@@ -47,7 +51,8 @@ MOUNT  := -v "$(CURDIR)":/work -w /work
 GEM5   := $(DOCKER) run --rm --network none $(MOUNT) \
             -e ASE_STUDIO_HOST_ROOT=/app --entrypoint python3 $(IMAGE)
 RISCV  := $(DOCKER) run --rm --platform $(PLATFORM) $(MOUNT) $(RISCV_IMAGE)
-GDB    := $(DOCKER) run -it --rm --platform $(PLATFORM) $(MOUNT) $(RISCV_IMAGE)
+GDB    := $(DOCKER) run -it --rm --platform $(PLATFORM) $(MOUNT) \
+            -e DEBUGGER=$(DEBUGGER) $(RISCV_IMAGE)
 
 ifeq ($(CUSTOM_PATCH),1)
 
@@ -100,4 +105,5 @@ help:
 	@sed -n '3,14p' Makefile | sed 's/^# \{0,1\}//'
 	@echo
 	@echo "CUSTOM_PATCH=$(CUSTOM_PATCH)  IMAGE=$(IMAGE)  RISCV_IMAGE=$(RISCV_IMAGE)"
+	@echo "DEBUGGER=$(DEBUGGER)"
 	@echo "Programs: $(if $(SOURCES),$(SOURCES),(none))"
