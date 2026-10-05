@@ -1,11 +1,12 @@
-# A small, reusable riscv64 image: a native toolchain plus gdb.
+# A small, reusable riscv64 image: a native toolchain, gdb and qemu-user.
 #
-# Used when CUSTOM_PATH=0 (compile + run the ELF natively) and by `make debug`
-# (gdb-multiarch).  Build it once with `make image`.
+# Used when CUSTOM_PATCH=0 (compile + run the ELF natively) and by `make debug`
+# (gdb-multiarch attached to QEMU's gdbstub).  Build it once with `make image`.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc binutils gdb-multiarch \
+ && apt-get install -y --no-install-recommends \
+      gcc binutils gdb-multiarch qemu-user \
  && rm -rf /var/lib/apt/lists/*

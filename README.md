@@ -17,9 +17,9 @@ any target to a single program.
 
 ## The two paths
 
-`CUSTOM_PATH` selects how a program is built and run:
+`CUSTOM_PATCH` selects how a program is built and run:
 
-| `CUSTOM_PATH` | build | run |
+| `CUSTOM_PATCH` | build | run |
 | --- | --- | --- |
 | `1` (default) | the ASR gem5 image, via `tools/incontainer.py` | gem5 simulation |
 | `0` | the plain riscv64 image (`make image`) | the ELF runs natively |
@@ -27,17 +27,17 @@ any target to a single program.
 The two paths use separate trees (`build/gem5/`, `build/riscv/`), so a gem5 rv32
 build is never mistaken for a native rv64 one. `make clean` removes both.
 
-`make debug` always uses the riscv64 image, whatever `CUSTOM_PATH` is: it opens
-the ELF in `gdb-multiarch`, which reads both the rv32 and the rv64 builds.
+`make debug` always uses the riscv64 image, whatever `CUSTOM_PATCH` is, and
+reads both the rv32 and the rv64 builds. See [Debugging](#debugging).
 
 ## Requirements
 
 - **Docker**.
 - The gem5 image, already pulled (`ghcr.io/pasc4le-labs/ase_riscv_gem5_sim`,
-  tag `v1.0.0-a.1` by default) for `CUSTOM_PATH=1`.
+  tag `v1.0.0-a.1` by default) for `CUSTOM_PATCH=1`.
 - The riscv64 image, built once with `make image` (defined in `Dockerfile.riscv`:
-  `ubuntu:24.04` for `linux/riscv64` with `gcc`, `binutils` and `gdb-multiarch`),
-  for `CUSTOM_PATH=0` and `make debug`.
+  `ubuntu:24.04` for `linux/riscv64` with `gcc`, `binutils`, `gdb-multiarch` and
+  `qemu-user`), for `CUSTOM_PATCH=0` and `make debug`.
 
 Nothing else: no host RISC-V toolchain, no gem5, no `timeout`.
 
@@ -55,12 +55,35 @@ For `<lab>/<program>.s`, in `build/{gem5,riscv}/<lab>/<program>/`:
 
 | variable | default | meaning |
 | --- | --- | --- |
-| `CUSTOM_PATH` | `1` | `1`: gem5 image; `0`: native riscv64 |
+| `CUSTOM_PATCH` | `1` | `1`: gem5 image; `0`: native riscv64 |
 | `IMAGE` | `ghcr.io/pasc4le-labs/…:v1.0.0-a.1` | the gem5 image |
 | `RISCV_IMAGE` | `ase-riscv:24.04` | the image `make image` builds |
 | `PLATFORM` | `linux/riscv64` | platform for the riscv64 image |
 | `TIMEOUT` | `180` | wall-clock cap per gem5 run, in seconds |
 | `PROG` | (all) | restrict to one program, e.g. `01/hello` |
+
+Any of these can be put in a git-ignored `.env` file instead of passed on the
+command line; copy `.env.example` to start. Command-line values still win.
+
+## Debugging
+
+```bash
+make debug PROG=01/hello
+```
+
+opens `gdb-multiarch` on `build/{gem5,riscv}/01/hello/main.elf`. Because the
+riscv64 container runs under QEMU user-mode emulation, which does not implement
+`ptrace`, gdb cannot launch the inferior itself. Instead `tools/gdbserver.sh`
+runs the ELF under `qemu-riscv32`/`qemu-riscv64` and attaches gdb to QEMU's
+gdbstub (`target remote`). The program is already paused at its entry point, so
+set breakpoints and use **`continue`** -- `run` will not work:
+
+```
+(gdb) break Main
+(gdb) continue
+```
+
+Stepping (`stepi`, `nexti`), registers, memory and breakpoints all work.
 
 ## Note
 

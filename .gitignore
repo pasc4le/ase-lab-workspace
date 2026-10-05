@@ -1,3 +1,6 @@
+# Local Makefile settings (`-include .env`)
+.env
+
 # uv environment created by `uv run`
 .venv/
 
