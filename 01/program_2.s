@@ -1,9 +1,9 @@
 .section .data
-v1: .byte   2, 6, -3, 11, 9, 18, -13, 16, 5, 1
-v2: .byte   4, 2, -13, 3, 9, 9, 7, 16, 4, 7
-v3: .space  10
+v1: .byte      2, 6, -3, 11, 9, 18, -13, 16, 5, 1
+v2: .byte      4, 2, 3, 9, 9, 7, 16, 4, 7
+v3: .space     10
 
-flags: .byte 0
+flags: .byte    0, 0, 0
 
 .section .text
 .globl _start
