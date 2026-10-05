@@ -58,9 +58,9 @@ no_insert_v3:
   bne s1, s2, loop_v1
 
 check_flag1:
-  bne s4, s3, check_flag2
-  la t0, flags
   li t1, 1
+  la t0, flags
+  bne s4, s3, check_flag2
   sb t1, 0(t0)
 
 check_flag2:
