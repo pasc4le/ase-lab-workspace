@@ -1,4 +1,4 @@
-# `env` — the lab environment
+# ASE Laboratory Environment
 
 Compile every `<lab>/<program>.s` to an ELF, then run it. Everything happens in
 Docker; the host only needs Docker.
