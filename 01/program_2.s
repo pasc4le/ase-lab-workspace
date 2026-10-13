@@ -9,9 +9,9 @@ flags: .byte    0, 0, 0
 .globl _start
 _start:
 Main:
-  # Next v address is the upperbound for the previous
-  # one. Saving v3 twice, one for boundaries and one 
-  # for counting.
+  # Next v address is the upperbound for the current 
+  # one (e.g. v1 last element is v2-1). Saving v3 twice, 
+  # one for boundaries and one for counting.
   la s1, v1
   la s2, v2
   la s3, v3
