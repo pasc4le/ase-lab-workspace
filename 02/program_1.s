@@ -45,7 +45,8 @@ act_fn:
 
   li        t1, 1.0
   fmv.w.x   f1, t1
-
+  fdiv.s    f4, f1, f4
+  fsw       f4, 0(s4)
 
 End:
   # exit() syscall. This is needed to end the simulation gracefully
