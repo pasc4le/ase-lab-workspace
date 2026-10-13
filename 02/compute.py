@@ -1,4 +1,5 @@
-BASE_CPI = 1
+BASE_CPI = 1.3
+BASE_HZ = 15e6
 
 def make(alu, mul, div, std = BASE_CPI, stalls = 0):
     return {
@@ -18,8 +19,8 @@ def boildown(cpu, d):
         + d.get('stalls', 0)
     )
 
-fixed = make(alu=5, mul=0, div=1, std=6 + 9 + 1 + 4, stalls=3)
-loop = make(alu=1, mul=0, div=0, std=5, stalls=4)
+fixed = make(alu=5, mul=0, div=1, std=6 + 9 + 1 + 4)
+loop = make(alu=1, mul=0, div=0, std=5)
 
 def compute(cpu, k = 30):
     # fixed part
@@ -30,7 +31,6 @@ def compute(cpu, k = 30):
 
     return cc + ccl
 
-BASE_HZ = 15e6
 
 def time(cc, hz = BASE_HZ):
     return cc / hz
@@ -44,6 +44,5 @@ if __name__ == "__main__":
     }
     
     for name, cpu in configs.items():
-        print(cpu)
         cc = compute(cpu)
         print(name, cc, time(cc))
