@@ -7,40 +7,45 @@
 .globl _start
 _start:
 Main:
-  la s1, i
-  la s2, w
-  la s3, b
-  flw f3, 0(s3)
-  la s4, y
+  la        s1, i
+  la        s2, w
+  la        s3, b
+  flw       f3, 0(s3)
+  la        s4, y
 
-  fcvt.s.w f4, zero # x
-  mv t1, s2
+  fcvt.s.w  f4, zero # x
+  mv        t1, s2
 
 perc_loop:
-  flw f1, 0(s1)
-  flw f2, 0(s2)
+  flw       f1, 0(s1)
+  flw       f2, 0(s2)
 
-  fmadd.s f4, f1, f2, f4
+  fmadd.s   f4, f1, f2, f4
 
-  addi s1, s1, 4
-  addi s2, s2, 4
-  bne s1, t1, perc_loop
+  addi      s1, s1, 4
+  addi      s2, s2, 4
+  bne       s1, t1, perc_loop
 
 add_b:
-  fadd.s f4, f4, f3
+  fadd.s    f4, f4, f3
 
 act_fn:
-  fclass.s t1, f4
-  andi t1, t1, 0x18 # bit 3 and 4 identifies +0 and -0 cases
+  fclass.s  t1, f4
+  andi      t1, t1, 0x18 # bit 3 and 4 identifies +0 and -0 cases
 
-  fmv.x.w t2, f4
-  srli t2, t2, 23
-  andi t2, t2, 0xFF
-  xori t2, t2, 0x7F
-  seqz t2, t2
+  fmv.x.w   t2, f4  # a bit convoluted, but it shifts to make code easier 
+                    # and matches for exponent
+  srli      t2, t2, 23
+  andi      t2, t2, 0xFF
+  xori      t2, t2, 0x7F
 
-  or t1, t1, t2
-  bnez t1, End
+  seqz      t2, t2
+  or        t1, t1, t2
+  bnez      t1, End
+
+  li        t1, 1.0
+  fmv.w.x   f1, t1
+
 
 End:
   # exit() syscall. This is needed to end the simulation gracefully
