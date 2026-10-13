@@ -2,8 +2,8 @@
 """Regenerate the data section of program_1.s in place.
 
 Fills `i` and `w` with 30 random single-precision floats each, spanning the
-full float32 range (tiny subnormal-ish magnitudes up to ~3.4e38, both signs),
-and `b` with a single float.
+full float32 range (tiny subnormal-ish magnitudes up to ~3.4e38, both signs).
+`b` and `y` are left untouched.
 
 Usage: python3 gen_data.py
 """
@@ -41,8 +41,6 @@ def main() -> None:
             out.append(f"\ti: .float {fmt(rand_f32() for _ in range(N))}")
         elif key == "w":
             out.append(f"\tw: .float {fmt(rand_f32() for _ in range(N))}")
-        elif key == "b":
-            out.append(f"\tb: .float {format(rand_f32(), '.9g')}")
         else:
             out.append(line)
     SRC.write_text("\n".join(out) + "\n")
